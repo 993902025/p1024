@@ -15,6 +15,7 @@ import os
 import random
 # import threading
 # from concurrent.futures import ThreadPoolExecutor, as_completed, wait, ALL_COMPLETED
+import sqlite3
 import traceback
 from logging import handlers
 from pathlib import Path
@@ -42,11 +43,11 @@ INTERVAL = 1
 BACKUP_COUNT = 5
 # 数据库配置
 DATABASE = "Database"  # 配置文件-数据库配置key值
-DB_HOST = "mongodb://localhost:27017/"
-DATABASE_NAME = "p1024"
-MAIN_URL_TABLE = "MainUrl"
-Areaur_Url_TABLE = "AreaurUrl"
-Picture_Url_TABLE = "PictureUrl"
+DB_PATH = "Data"
+DATABASE_NAME = "p1024.db"
+MAIN_URL_TABLE = "mainurl"
+Area_Url_TABLE = "areaurl"
+Picture_Url_TABLE = "pictureurl"
 # 下载配置
 Download = "Download"
 Download_Path = "Download/"
@@ -77,10 +78,10 @@ def InitConf():
                  "BackupCount": BACKUP_COUNT
                  }
 
-    conf[DATABASE] = {"DBHost": DB_HOST,
+    conf[DATABASE] = {"DBPath": DB_PATH,
                       'Database': DATABASE_NAME,
                       'MainURLTABLE': MAIN_URL_TABLE,
-                      'AreaurUrlTABLE': Areaur_Url_TABLE,
+                      'AreaurUrlTABLE': Area_Url_TABLE,
                       "PictureUrlTABLE": Picture_Url_TABLE
                       }
 
@@ -142,6 +143,71 @@ def get_logger(when="midnight", interval=1, backupCount=5):
     return logger_obj
 
 
+# 检查一下有没有这个库、表
+def CheckSqlLib(cur, table):
+    # conn = sqlite3.connect(database)
+    # print("!Connect database successfully")
+    # c = conn.cursor()
+    sql = "select name from sqlite_master where type='table' order by name"
+    try:
+        reslist = cur.execute(sql).fetchall()
+        log.info(sql)
+        log.info(reslist)
+        for row in reslist:
+            if row[0] == table:
+                return True
+
+    except sqlite3.Error as e:
+        log.error(e.args)
+    return False
+
+
+def InitDatabase(con, dbpath, database):
+    """
+    初始化数据（sqllite）
+    :param conn:
+    :param dbpath:
+    :param database:
+    :return:
+    """
+    if not Path("Data").is_dir():
+        os.makedirs("Data")
+
+    if con is None:
+        con = sqlite3.connect("Data" + "/" + database)
+    c = con.cursor()
+
+    # sql = 'INSERT INTO PERSONS(ID, NAME, BIRTHDAY, SEX, CNBIRTHDAY, ZI, DIE, DIEDAY, SPOUSEID, CHILDRENNUM,
+    # CHILDREN) VALUES( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    if not CheckSqlLib(c, "USER"):
+        # 创建用户表 用于测试数据库的
+        sql = "CREATE TABLE USER (ID INTEGER PRIMARY KEY autoincrement NOT NULL, username VARCHAR (255) NOT NULL, password VARCHAR (255) NOT NULL, STATUS CHAR NOT NULL DEFAULT (1), BACKUP1 VARCHAR(255));"
+        log.info("创建表" + "USER" + ":" + sql)
+        cursor = c.execute(sql)
+    if not CheckSqlLib(c, "MAINURL"):
+        sql = "CREATE TABLE MAINURL (ID INTEGER PRIMARY KEY autoincrement NOT NULL, URL VARCHAR (255) NOT NULL, STATUS CHAR NOT NULL DEFAULT (1), BACKUP1 VARCHAR(255));"
+        log.info("创建表" + "MAINURL" + ":" + sql)
+        cursor = c.execute(sql)
+    if not CheckSqlLib(c, "AREAURL"):
+        sql = "CREATE TABLE AREAURL (ID INTEGER PRIMARY KEY NOT NULL, NAME VARCHAR (255) NOT NULL UNIQUE, URL VARCHAR (255) NOT NULL, STATUS CHAR NOT NULL DEFAULT (1), BACKUP1 VARCHAR(255));"
+        log.info("创建表" + "AREAURL" + ":" + sql)
+        cursor = c.execute(sql)
+    if not CheckSqlLib(c, "PICTUREURL"):
+        sql = "CREATE TABLE PICTUREURL (ID INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, NAME VARCHAR(255) NOT NULL, URL VARCHAR(255) NOT NULL, STATUS CHAR NOT NULL DEFAULT(1), TYPE VARCHAR(255) NOT NULL, ISDID INTEGER DEFAULT(0), MAX INTEGER DEFAULT(0), BACKUP1 VARCHAR(255));"
+        log.info("创建表" + "PICTUREURL" + ":" + sql)
+        cursor = c.execute(sql)
+
+    # sqldata = (str(id), name, birthday, sex, cnbirthday, zi, die, dieday, spouseid, childrennum, children)
+    # cursor = c.execute(sql, sqldata)
+    con.commit()
+
+    return con
+
+
+def SqlSelect():
+    pass
+
+
 #
 def GetMainUrl(hosturl, urlpath):
     """
@@ -165,38 +231,48 @@ def GetMainUrl(hosturl, urlpath):
     data = response.json()
     code = response.status_code
     log.info(url + "return code(" + str(code) + ")")
+    datalist = []
+    for i in range(0, len(data)):
+        datalist.append(data["url" + str(i + 1)])
 
-    # 将data的json放到list中
-    datalist = [
-        {"name": "url1", "url": data["url1"], "status": 1},
-        {"name": "url2", "url": data["url2"], "status": 1},
-        {"name": "url3", "url": data["url3"], "status": 1},
-    ]
-    mainurltable = mydb[MAIN_URL_TABLE]
-    # mainurltable.delete_many({})
-    for d in datalist:
-        if not IsHaveHashData(MAIN_URL_TABLE, d, {"_id": 0}):
-            log.info("Need Insert:" + str(d))
-            mainurltable.insert_one(d)  # 数据库中没有的则插入
-            pass
+    # 数据入库
+    c = conn.cursor()
+    for each in datalist:
+        if not IsHaveHashData(MAIN_URL_TABLE, ("url", each)):
+            sql = "INSERT INTO MAINURL ( URL ) VALUES ( ? );"
+            sqldata = (each,)
+            reslist = c.execute(sql, sqldata)
+            log.info("新数据入库:" + sql + str(each) + "|" + str(reslist))
+
     return datalist
-    # print(data["url1"])
 
 
-# 查询db中table有没有dat这条数据 hash比对
-def IsHaveHashData(table, dat, datshowdict):
-    result = False
-    dat = dat
-    # mycol = mydb[table]
-    for x in table.find({}, datshowdict):
-        # print("xhash=" + str(hash(str(x))) + "\n" + "dhash=" + str(hash(str(dat))) + "\n")
-        if hash(str(dat)) == hash(str(x)):
-            result = True
-            log.debug("数据库:" + str(mydb.name) + "\t表:" + str(table.name) + "\t已有数据:" + str(dat) + "数据hash值:" + str(
-                hash(str(dat))) + "\tResult:" + str(result))
-    # print(result)
-    return result
-    pass
+def IsHaveHashData(table, *args):
+    """
+    查询db中table有没有dat这条数据
+    :param table:
+    :param args:
+    :return:
+    """
+    c = conn.cursor()
+    sql = "select id from " + table + " where "  # status = ? order by id"
+    for i in range(0, len(args)):
+        if i == len(args) - 1:
+            sql = sql + str(args[i][0]) + " = ? " + ";"
+        else:
+            sql = sql + "\'" + str(args[i][0]) + "\'" + " = ?" + " and "
+    sqldata = ()
+    for i in range(0, len(args)):
+        sqldata += (args[i][1],)
+
+    print(sql, sqldata)
+    reslist = c.execute(sql, sqldata).fetchall()
+
+    if len(reslist) > 0:
+        print("表:" + table + "\t已有数据:" + str(args))
+        return True
+    else:
+        return False
 
 
 def file_write(fstr, fname):
@@ -276,11 +352,12 @@ def GetAreaurUrl(arealist):
         areaurls.append(areaurldict)
 
     # 入库
-    areaurltable = mydb[Areaur_Url_TABLE]
+    # areaurltable = mydb[Area_Url_TABLE]
     # areaurltable.delete_many({})
+
     d_i = 0
     for d in areaurls:
-        if not IsHaveHashData(Areaur_Url_TABLE, d, {"_id": 0, "isdid": 0}):
+        if not IsHaveHashData(Area_Url_TABLE, d, {"_id": 0, "isdid": 0}):
             d["isdid"] = 0
             d_i += 1
             d["_id"] = d_i
@@ -313,7 +390,7 @@ def GetPageUrlFromDb(hosturl, table, areanum, pagetable):
     :param table:
     :return:
     """
-    areaurltable = mydb[table]
+    # areaurltable = mydb[table]
     allpages = []
     myquery = {"_id": areanum, "isdid": 0}  # 根据id来设置处理的分区，这里以12【图片】分区先做
     for each in areaurltable.find(myquery, {"url": 1}):
@@ -328,11 +405,10 @@ def GetPageUrlFromDb(hosturl, table, areanum, pagetable):
 
     # with ThreadPoolExecutor(3) as executor:
     # for eachurl in allpages:
-        # future = executor.submit(AreaurPage, hosturl, eachurl)
-        # AreaurPage(hosturl, eachurl, pagetable)
-        # alltask.append(future)
+    # future = executor.submit(AreaurPage, hosturl, eachurl)
+    # AreaurPage(hosturl, eachurl, pagetable)
+    # alltask.append(future)
     # executor.submit()
-
 
 
 def AreaurPage(host_url, eachurl, table):
@@ -385,7 +461,7 @@ def AreaurPage(host_url, eachurl, table):
 
     # 单页地址
     # 入库
-    singlepagetable = mydb[table]
+    # singlepagetable = mydb[table]
     # singlepagetable.delete_many({})
 
     # 每个解析截取出来的进行再验证，然后再操作
@@ -507,41 +583,45 @@ def downimg(src, fstr, didcount, pmax):
         r = requests.get(url)
     # if not Path(Download_Path).is_dir():    # download目录
     #     os.makedirs(Download_Path)
-    if not Path(Download_Path + "/" + fstr).is_dir():        # 单项目录
+    if not Path(Download_Path + "/" + fstr).is_dir():  # 单项目录
         os.makedirs(Download_Path + "/" + fstr)
 
     with open(Download_Path + "/" + fstr + "/" + imgindexname, 'wb') as f:
         f.write(r.content)
         # log.info(imgindexname + " 下载成功(" + str(fstr) + "/" + str(pmax) + ")")
         os.system("")  # 变色玄学必须
-        print(Download_Path + "\033[0;37;47m" + fstr + "\033[0m" + imgindexname + " 下载成功(" + str(didcount) + "/" + str(pmax) + ")")
+        print(Download_Path + "\033[0;37;47m" + fstr + "\033[0m" + imgindexname + " 下载成功(" + str(didcount) + "/" + str(
+            pmax) + ")")
 
 
-def CheckMainUrl():
+def CheckMainUrl(table):
     """
     检查主页状态
     :return:
     """
     result = ''
+    c = conn.cursor()
     m_can_use_urls = []  # 存放库中状态可用的url地址列表
-    maintable = mydb[MAIN_URL_TABLE]
-    for x in maintable.find({"status": 1}).sort("_id", -1):
-        if len(x) == 0:
-            break
-        m_can_use_urls.append(x)
+    # maintable = mydb[MAIN_URL_TABLE]
+    sql = "select id, url from " + table + " where status = ? order by id"
+    args = (1,)
+    reslist = c.execute(sql, args).fetchall()
+    # 查询主页地址表中所有状态可用(1)的数据
+    if len(reslist) > 0:
+        for each in reslist:
+            m_can_use_urls.append(each)
 
-    for x in m_can_use_urls:
-        m_re_htmls = GetMainPagaInfo(x["url"])
-        if len(m_re_htmls) > 0:
-            m_can_use_urls.append(x)
-            result = m_can_use_urls
-            break
-        else:
-            m_can_use_urls.remove(x)
-            maintable.update_one({"_id": x["_id"]}, {"$set": {"status": 0}})
+        for each in m_can_use_urls:
+            m_re_htmls = GetMainPagaInfo(each[1])
+            if len(m_re_htmls) == 0:
+                m_can_use_urls.remove(each)
+                # maintable.update_one({"_id": x["_id"]}, {"$set": {"status": 0}})
+                sql = "UPDATE MAINURL SET  STATUS = 1  WHERE ID = ?;"
+                sqldata = (each[0],)
+                c.execute(sql, sqldata)
+                conn.commit()
 
     log.info("主页地址列表:" + str(m_can_use_urls))
-
     return m_can_use_urls
 
 
@@ -567,10 +647,10 @@ if __name__ == '__main__':
         INTERVAL = config[LOG].getint("Interval")
         BACKUP_COUNT = config[LOG].getint("BackupCount")
         # 数据库配置
-        DB_HOST = config[DATABASE]["DBHost"]
+        DB_PATH = config[DATABASE]["DBPath"]
         DATABASE_NAME = config[DATABASE]['Database']
         MAIN_URL_TABLE = config[DATABASE]['MainURLTABLE']
-        Areaur_Url_TABLE = config[DATABASE]['AreaurUrlTABLE']
+        Area_Url_TABLE = config[DATABASE]['AreaurUrlTABLE']
         Picture_Url_TABLE = config[DATABASE]["PictureUrlTABLE"]
         # 下载配置
         Download_Path = config[Download]["DownloadPath"]
@@ -579,13 +659,17 @@ if __name__ == '__main__':
 
         # log = get_logger(config[LOG]["When"], config[LOG].getint("Interval"), config[LOG].getint("backupCount"))
 
-        myclient = pymongo.MongoClient(DB_HOST)
-        mydb = myclient[DATABASE_NAME]
+        conn = None  # sqlite3.connect(DATABASE_NAME)
+        # c = conn.cursor()
+        conn = InitDatabase(conn, DB_PATH, DATABASE_NAME)
 
-        if SWITCH == 0:     # 初始化，不做爬虫
+        myclient = pymongo.MongoClient(DB_PATH)
+        # mydb = myclient[DATABASE_NAME]
+
+        if SWITCH == 0:  # 初始化，不做爬虫
             pass
 
-        elif SWITCH == 1:   # 显示可用网址
+        elif SWITCH == 1:  # 显示可用网址
             mhost = CheckMainUrl()
             if mhost == '':
                 # 获取主页地址
@@ -596,7 +680,7 @@ if __name__ == '__main__':
                 log.info("主页地址列表:" + str(mhost))
                 print("可用地址：" + str(mhost))
 
-        elif SWITCH == 2:       # 抓分区地址
+        elif SWITCH == 2:  # 抓分区地址
             mhost = CheckMainUrl()
             if mhost == '':
                 # 获取主页地址
@@ -610,7 +694,7 @@ if __name__ == '__main__':
             mainhtml = GetMainPagaInfo(mhost[0]["url"])
             GetAreaurUrl(mainhtml)
 
-        elif SWITCH == 3:       # 下载
+        elif SWITCH == 3:  # 下载
             mhost = CheckMainUrl()
             if mhost == '':
                 # 获取主页地址
@@ -620,7 +704,7 @@ if __name__ == '__main__':
             else:
                 log.info("主页地址列表:" + str(mhost))
                 print("可用地址：" + str(mhost))
-            GetPageUrlFromDb(mhost[0]["url"], Areaur_Url_TABLE, 12, Picture_Url_TABLE)    # 12是图片区的 _id
+            GetPageUrlFromDb(mhost[0]["url"], Area_Url_TABLE, 12, Picture_Url_TABLE)  # 12是图片区的 _id
             pictable = mydb[Picture_Url_TABLE]
 
             GetOnePage(mhost[0]["url"], pictable, "寫真")
