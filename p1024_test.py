@@ -2,6 +2,9 @@
 #
 import sqlite3
 
+import requests
+from bs4 import BeautifulSoup
+
 dbpath = "log"
 dbfile = "p1024test.db"
 
@@ -75,31 +78,32 @@ def tselect(table, *args):
 
 # CheckMainUrl("MAINURL")
 
-
-def IsHaveHashData(table, *args):
+def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
     """
-    查询db中table有没有dat这条数据
-    :param table:
-    :param args:
+    进入单页，操作，下载；修改图片数据库状态
+    :param host_url:    Host
+    :param ptable:      表名
+    :param pid:         id
+    :param pfname:      图名
+    :param purlpath:    单页url路径
+    :param pdidcount:   已下载计数
     :return:
     """
-    sql = "select id from " + table + " where " # status = ? order by id"
-    for i in range(0, len(args)):
-        if i == len(args) - 1:
-            sql = sql + str(args[i][0]) + " = ? " + ";"
-        else:
-            sql = sql + "\'" + str(args[i][0]) + "\'" + " = ?" + " and "
-    sqldata = ()
-    for i in range(0, len(args)):
-        sqldata += (args[i][1],)
+    url = "https://" + host_url + "/" + purlpath
+    # print(url)
+    head = {
+        "user-Agent": "Mozilla/4.0 (compatible; MSIE 6.13; Windows NT 5.1;SV1)",
+        "Host": host_url,
+        "Content-Length": "0",
+    }
+    response = requests.get(url, headers=head)
+    html = response.content.decode('GBK')
+    content_soup = BeautifulSoup(html, 'lxml')
+    p_list = content_soup.select('div.tpc_content.do_not_catch > p > img ')
+    pmax = len(p_list)
+    print("pmax=" + str(pmax))
+    print("plist=\n" + str(p_list).replace('\n', ' ').replace(u'\xa0', ' ').replace(
+                        u'\u200b', ''))
 
-    print(sql, sqldata)
-    reslist = c.execute(sql, sqldata).fetchall()
 
-    if len(reslist) > 0:
-        print("表:" + table + "\t已有数据:" + str(args))
-        return True
-    else:
-        return False
-
-print(IsHaveHashData("MAINURL", ("url", "cl.fc55.ga")))
+GetALLPic("cl.tu2s.tk", "ptable", "pid", "pfname", "htm_data/2002/8/3815594.html", 0)

@@ -16,6 +16,7 @@ import random
 # import threading
 # from concurrent.futures import ThreadPoolExecutor, as_completed, wait, ALL_COMPLETED
 import sqlite3
+import sys
 import traceback
 from logging import handlers
 from pathlib import Path
@@ -50,10 +51,11 @@ Area_Url_TABLE = "areaurl"
 Picture_Url_TABLE = "pictureurl"
 # 下载配置
 Download = "Download"
-Download_Path = "Download/"
+Download_Path = "Download"
 # 指令配置
 INSTRUCTION = "Instruction"
-SWITCH = 0
+SWITCH = 1
+GetPageNum = 1
 
 
 def InitConf():
@@ -87,7 +89,8 @@ def InitConf():
 
     conf[Download] = {"DownloadPath": Download_Path}
 
-    conf[INSTRUCTION] = {"Switch": SWITCH}
+    conf[INSTRUCTION] = {"Switch": SWITCH,
+                         "GetPageNum": 1}
 
     with open(CONFIGFILE, 'w') as configfile:
         conf.write(configfile)
@@ -123,15 +126,15 @@ def get_logger(when="midnight", interval=1, backupCount=5):
     logger_obj = logging.getLogger(__name__)
     if not Path("log").is_dir():
         os.makedirs(Path("log"))
-    logger_obj.setLevel(logging.INFO)
+    logger_obj.setLevel(logging.DEBUG)      # 最低日志显示等级
     # fh = logging.FileHandler(log_file)
     fh = handlers.TimedRotatingFileHandler(logPath, when=when, interval=interval,
                                            backupCount=backupCount, encoding='utf-8')  # filename定义将信息输入到指定的文件，
     # when指定单位是s(秒),interval是时间间隔的频率,单位是when所指定的哟（所以，你可以理解频率是5s）；backupCount表示备份的文件个数，我这里是指定的3个文件。
-    fh.setLevel(logging.INFO)
+    fh.setLevel(logging.DEBUG)      # 最低文件日志显示等级
 
     ch = logging.StreamHandler()
-    ch.setLevel(logging.WARNING)
+    ch.setLevel(logging.WARNING)    # 最低屏显日志显示等级
 
     formater = logging.Formatter("%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s")
     fh.setFormatter(formater)
@@ -189,7 +192,7 @@ def InitDatabase(con, dbpath, database):
         log.info("创建表" + "MAINURL" + ":" + sql)
         cursor = c.execute(sql)
     if not CheckSqlLib(c, "AREAURL"):
-        sql = "CREATE TABLE AREAURL (ID INTEGER PRIMARY KEY NOT NULL, NAME VARCHAR (255) NOT NULL UNIQUE, URL VARCHAR (255) NOT NULL, STATUS CHAR NOT NULL DEFAULT (1), BACKUP1 VARCHAR(255));"
+        sql = "CREATE TABLE AREAURL (ID INTEGER PRIMARY KEY NOT NULL, NAME VARCHAR (255) NOT NULL UNIQUE, URL VARCHAR (255) NOT NULL, STATUS CHAR NOT NULL DEFAULT (1),TABLE_NAME VARCHAR(255), BACKUP1 VARCHAR(255));"
         log.info("创建表" + "AREAURL" + ":" + sql)
         cursor = c.execute(sql)
     if not CheckSqlLib(c, "PICTUREURL"):
@@ -210,6 +213,7 @@ def SqlSelect():
 
 #
 def GetMainUrl(hosturl, urlpath):
+    log.debug("Do GetMainUrl")
     """
     获取主页
     :param urlpath:
@@ -232,7 +236,8 @@ def GetMainUrl(hosturl, urlpath):
     code = response.status_code
     log.info(url + "return code(" + str(code) + ")")
     datalist = []
-    for i in range(0, len(data)):
+    for i in range(0, 3):
+        log.debug("data:" + str(len(data) - 1) + ":" + str(data))
         datalist.append(data["url" + str(i + 1)])
 
     # 数据入库
@@ -241,9 +246,9 @@ def GetMainUrl(hosturl, urlpath):
         if not IsHaveHashData(MAIN_URL_TABLE, ("url", each)):
             sql = "INSERT INTO MAINURL ( URL ) VALUES ( ? );"
             sqldata = (each,)
-            reslist = c.execute(sql, sqldata)
+            reslist = c.execute(sql, sqldata).fetchall()
             log.info("新数据入库:" + sql + str(each) + "|" + str(reslist))
-
+    conn.commit()
     return datalist
 
 
@@ -265,11 +270,12 @@ def IsHaveHashData(table, *args):
     for i in range(0, len(args)):
         sqldata += (args[i][1],)
 
-    print(sql, sqldata)
+    log.debug(sql + str(sqldata))
     reslist = c.execute(sql, sqldata).fetchall()
 
     if len(reslist) > 0:
-        print("表:" + table + "\t已有数据:" + str(args))
+        # print("表:" + table + "\t已有数据:" + str(args))
+        log.info("表:" + table + "\t已有数据:" + str(args))
         return True
     else:
         return False
@@ -317,12 +323,12 @@ def GetMainPagaInfo(host_url):
         head["Cookie"] = cookie
     # data = ""
     log.info("主页地址:" + url)
-    print("主页地址:" + url)
+    # print("主页地址:" + url)
     response = requests.get(url, headers=head)
     # data = response.content
     # response.encoding = response.apparent_encoding
     html = response.content.decode('GBK')
-    log.debug(html)
+    # log.debug(html)
 
     content_soup = BeautifulSoup(html, 'lxml')
     p_list = content_soup.select('#main > .t > table > #cate_1 > .tr3 > th > h2 > a')
@@ -338,32 +344,28 @@ def GetMainPagaInfo(host_url):
     return p_list
 
 
-def GetAreaurUrl(arealist):
+def GetAreaurUrl(arealist, table):
     """
     解析 获取 分区url地址
     :param arealist:
+    :param table:
     :return:
     """
     areaurls = []
     fstr = ""
-    for i in arealist:
-        # fstr = fstr + i.text + "-" + i['href'] + "\n"
-        areaurldict = {"name": i.text, "url": i['href']}  # , "isdid": 0}
-        areaurls.append(areaurldict)
+    for each in arealist:
+        areaurls.append({"name": each.text, "url": each['href'], "status": 1, "TABLE_NAME": table})
+    log.debug("areaurls:" + str(areaurls))
+    c = conn.cursor()
+    for each in areaurls:
+        log.debug("areaurls:" + str(each) + "|" + each["url"])
+        if not IsHaveHashData(Area_Url_TABLE, ("url", each["url"])):  # (Area_Url_TABLE, d, {"_id": 0, "isdid": 0}):
+            sql = "INSERT INTO " + Area_Url_TABLE.upper() + " ( NAME, URL, STATUS, TABLE_NAME ) VALUES ( ?, ?, ?, ? );"
+            sqldata = (each["name"], each["url"], each["status"], each["TABLE_NAME"],)
+            reslist = c.execute(sql, sqldata).fetchall()
+            log.info("新数据入库:" + sql + str(each) + "|" + str(reslist))
 
-    # 入库
-    # areaurltable = mydb[Area_Url_TABLE]
-    # areaurltable.delete_many({})
-
-    d_i = 0
-    for d in areaurls:
-        if not IsHaveHashData(Area_Url_TABLE, d, {"_id": 0, "isdid": 0}):
-            d["isdid"] = 0
-            d_i += 1
-            d["_id"] = d_i
-            log.info("Need Insert:" + str(d))
-            areaurltable.insert_one(d)  # 数据库中没有的则插入
-    d_i = 0
+    conn.commit()
 
     log.info("版块分区列表:" + str(areaurls))
 
@@ -381,9 +383,10 @@ def GetAreaurUrl(arealist):
     # t_page_cate2.start()    # 图片区的
 
 
-def GetPageUrlFromDb(hosturl, table, areanum, pagetable):
+def GetPageUrlFromDb(hosturl, table, areanum, getpagenum):
     """
     版块分区 页面处理
+    :param getpagenum:
     :param pagetable:
     :param areanum:
     :param hosturl:
@@ -391,17 +394,23 @@ def GetPageUrlFromDb(hosturl, table, areanum, pagetable):
     :return:
     """
     # areaurltable = mydb[table]
+    c = conn.cursor()
     allpages = []
     myquery = {"_id": areanum, "isdid": 0}  # 根据id来设置处理的分区，这里以12【图片】分区先做
-    for each in areaurltable.find(myquery, {"url": 1}):
-        # print("194" + str(each))
-        result = each["url"]
-    for i in range(1, 2):
-        eachurl = result + "&search=&page=" + str(i)
-        allpages.append(eachurl)
-        AreaurPage(hosturl, eachurl, pagetable)
-        # task = executor.submit(AreaurPage, hosturl, eachurl)
-        # print(hosturl + "/" + eachurl)
+    sql = "SELECT ID, NAME, URL, STATUS, TABLE_NAME FROM " + table.upper() + " WHERE ID = ?;"
+    sqldata = (12, )
+    log.debug(sql + str(sqldata))
+    reslist = c.execute(sql, sqldata).fetchall()
+
+    for each in reslist:    # 不限制 id = 12 的话，就是所有分区的地址都出来了，这里目前只做图片区（12），所以其实只有长度1
+        allpages.append({"id": each[0], "name": each[1], "url": each[2], "table": each[4]})
+    for each in allpages:
+        for i in range(0, getpagenum):
+            eachurl = each["url"] + "&search=&page=" + str(i + 1)
+            # allpages.append(eachurl)
+            AreaurPage(hosturl, eachurl, each["table"])
+            # task = executor.submit(AreaurPage, hosturl, eachurl)
+            # print(hosturl + "/" + eachurl)
 
     # with ThreadPoolExecutor(3) as executor:
     # for eachurl in allpages:
@@ -416,19 +425,18 @@ def AreaurPage(host_url, eachurl, table):
     -从板块页（xx区）获取具体每一项页面    这里目前只有'图片'区，以后可以改成传入参数，或每个区不同函数
     :param host_url: -Host地址
     :param eachurl: -urlpath路径
+    :param table:
     :return:    没啥用
     """
     url = "https://" + host_url + "/" + eachurl  # GetPageUrlFromDb("AreaUrl")
     # url = "https://cl.fc55.ga/thread0806.php?fid=8&search=&page=1"
     head = {
-        # "user-Agent": "Mozilla/4.0 (compatible; MSIE 6.13; Windows NT 5.1;SV1)",
         "user-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
                       "Chrome/76.0.3809.132 Safari/537.36",
         "Host": host_url,
         "Content-Length": "0",
         "Accept": "accept: text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,"
                   "application/signed-exchange;v=b3",
-        # "Cookie": cookie,
     }
     cookie = GetCookie()
     if len(cookie) > 1:
@@ -437,7 +445,6 @@ def AreaurPage(host_url, eachurl, table):
     print("抓取地址板块地址:" + url + "\n")
     log.info("抓取地址板块地址:" + url + "\n")
 
-    proxy = '119.23.79.199:3128'  # 本地代理
     # proxies = {
     #     'http': 'http://' + proxy,
     #     'https': 'https://' + proxy
@@ -461,9 +468,8 @@ def AreaurPage(host_url, eachurl, table):
 
     # 单页地址
     # 入库
-    # singlepagetable = mydb[table]
-    # singlepagetable.delete_many({})
-
+    c = conn.cursor()
+    datalist = []
     # 每个解析截取出来的进行再验证，然后再操作
     for i in p_list:
         # 首先检查属性有没有 "href" 链接，没有的说明不是预期项
@@ -475,32 +481,30 @@ def AreaurPage(host_url, eachurl, table):
                     fstr = i.parent.parent.getText('\n', '&nbsp').replace('\n', ' ').replace(u'\xa0', ' ').replace(
                         u'\u200b', '')
                     try:
-                        typestr = fstr.split('[')[1].split(']')[0]
-                    except:
+                        typestr = fstr[0: int(len(fstr)/2)].split('[')[1].split(']')[0]
+                    except Exception as e:
+                        log.warning(e.__str__() + "|" + fstr)
                         typestr = "其他"
-                    singurl = i['href']
-                    # print(fstr + i["href"])
-                    # itext = i.parent.parent.get_text().replace(u'\xa0', ' ')  # 将源码中的空格转码
-                    # itext = itext.replace(u'\u200b', '')
-                    datadict = {"name": fstr, "type": typestr, "url": i['href'], "isdid": 0, "max": 0, "status": 0}
-                    if not IsHaveHashData(singlepagetable, datadict, {"_id": 0}):
-                        log.info("入库:" + mydb.name + "/" + singlepagetable.name + str(datadict))
-                        singlepagetable.insert_one(datadict)  # 数据库中没有的则插入
-                        pass
-                    # logstr = "单页:" + fstr + "\t" + i['href'] + "\n"
-                    # log.info(logstr)
-    time.sleep(random.uniform(0.5, 1))
-    print("完成抓取解析入库:" + url)
+                    datalist.append({"name": fstr, "url": i['href'], "status": 1, "type": typestr, "isdid": 0, "max": 0})
+                    # log.debug(str({"name": fstr, "url": i['href'], "status": 0, "type": typestr, "isdid": 0, "max": 0}))
+    i = 0
+    for each in datalist:
+        if not IsHaveHashData(table, ("url", each["url"])):  # (Area_Url_TABLE, d, {"_id": 0, "isdid": 0}):
+            sql = "INSERT INTO " + table.upper() + " ( NAME, URL, STATUS, TYPE, ISDID, MAX ) VALUES ( ?, ?, ?, ?, ?, ? );"
+            sqldata = (each["name"], each['url'], each['status'], each['type'], each['isdid'], each['max'])
+            reslist = c.execute(sql, sqldata).fetchall()
+            log.info("新数据入库:" + str(sqldata) + sql + "|" + str(reslist))
+            i += 1
+
+    conn.commit()
+    time.sleep(random.uniform(0, 0.5))
+    print("完成抓取解析入库:" + url + " | 新增数据:(" + str(i) + ")")
     return 0
     # 分主题爬取 ps:[写真]、[动漫]
-
     # 进入具体页进行操作，这里最好要做通道先进先出，放一个地址进去，拿一个地址出来。
     # 用多线程，线程池 pool
 
-    #
 
-
-#
 def GetOnePage(host_url, table, wantdowntype):
     """
     从表table中查询未下载的进行下载
@@ -509,18 +513,19 @@ def GetOnePage(host_url, table, wantdowntype):
     :param wantdowntype:    想要下载的类型
     :return:
     """
-    # print(str(table))
-    for each in table.find({"status": 0, "type": wantdowntype}).sort("_id", 1):
-        # print(str(each))
-        imgid = each["_id"]
-        imgname = each["name"]
-        imgdowntype = each["type"]
-        imgurl = each["url"]
-        imgdidcount = int(each["isdid"])
-        imgstatus = int(each["status"])
-        if imgstatus == 0 and imgdowntype == "寫真":
-            log.info("进入[" + imgurl + "]预备下载：" + imgname)
-            GetALLPic(host_url, table, imgid, imgname, imgurl, imgdidcount)
+    c = conn.cursor()
+    allpages = []
+    # myquery = {"_id": areanum, "isdid": 0}  # 根据id来设置处理的分区，这里以12【图片】分区先做
+    sql = "SELECT ID, NAME, URL, STATUS, TYPE, ISDID, MAX FROM " + table + " WHERE TYPE = ? AND STATUS = ?;"
+    sqldata = (wantdowntype, 1)
+    reslist = c.execute(sql, sqldata).fetchall()
+    log.debug(sql + str(sqldata))
+    for each in reslist:
+        # log.debug(str(reslist))
+        # print(str(each[1]) + str(int(each[3]) == 1) + str(each[4] == "寫真"))
+        if int(each[3]) == 1 and each[4] == "寫真":
+            log.info("进入[" + each[2] + "]预备下载：" + each[1])
+            GetALLPic(host_url, table, each[0], each[1], each[2], each[5])
 
 
 def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
@@ -544,17 +549,35 @@ def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
     response = requests.get(url, headers=head)
     html = response.content.decode('GBK')
     content_soup = BeautifulSoup(html, 'lxml')
-
     p_list = content_soup.select('div.tpc_content.do_not_catch > img ')
     pmax = len(p_list)
-    ptable.update_one({"_id": pid}, {"$set": {"max": pmax}})
+    if pmax == 0:
+        p_list = content_soup.select('div.tpc_content.do_not_catch > p > img ')
+        pmax = len(p_list)
+    if pmax == 0:
+        log.warning("提取不到数据，可能方式不一样【" + str(url) + "】")
+        return
+    c = conn.cursor()
+    sql = "UPDATE " + ptable.upper() + " SET  MAX = ?  WHERE ID = ?;"
+    sqldata = (pmax, pid,)
+    reslist = c.execute(sql, sqldata).fetchall()
+    conn.commit()
+
     # log.info("pmax---" + str(pmax))
     for i in range(pdidcount, pmax):
         src = p_list[i]["data-src"]
         # log.info('src::' + str(src))
         downimg(src, pfname, i, pmax)  #
-        ptable.update_one({"_id": pid}, {"$set": {"isdid": i + 1}})
-    ptable.update_one({"_id": pid}, {"$set": {"status": 1, "isdid": pmax, "max": pmax}})
+        sql = "UPDATE " + ptable.upper() + " SET  ISDID = ?  WHERE ID = ?;"
+        sqldata = (i + 1, pid,)
+        reslist = c.execute(sql, sqldata).fetchall()
+        conn.commit()
+
+    sql = "UPDATE " + ptable.upper() + " SET STATUS = ?, ISDID = ?  WHERE ID = ?;"
+    sqldata = (0, pmax, pid,)
+    reslist = c.execute(sql, sqldata).fetchall()
+    conn.commit()
+
     print("下载完成:" + "[" + str(pid) + "](" + str(pmax) + ")")
     log.info("下载完成:" + "[" + pfname + "](" + str(pmax) + ")")
 
@@ -590,7 +613,10 @@ def downimg(src, fstr, didcount, pmax):
         f.write(r.content)
         # log.info(imgindexname + " 下载成功(" + str(fstr) + "/" + str(pmax) + ")")
         os.system("")  # 变色玄学必须
-        print(Download_Path + "\033[0;37;47m" + fstr + "\033[0m" + imgindexname + " 下载成功(" + str(didcount) + "/" + str(
+        print(Download_Path + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(
+            pmax) + ")")
+        log.info(Download_Path + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(
+            didcount + 1) + "/" + str(
             pmax) + ")")
 
 
@@ -603,7 +629,7 @@ def CheckMainUrl(table):
     c = conn.cursor()
     m_can_use_urls = []  # 存放库中状态可用的url地址列表
     # maintable = mydb[MAIN_URL_TABLE]
-    sql = "select id, url from " + table + " where status = ? order by id"
+    sql = "select id, url from " + str(table).upper() + " where status = ? order by id"
     args = (1,)
     reslist = c.execute(sql, args).fetchall()
     # 查询主页地址表中所有状态可用(1)的数据
@@ -620,8 +646,11 @@ def CheckMainUrl(table):
                 sqldata = (each[0],)
                 c.execute(sql, sqldata)
                 conn.commit()
+            else:
+                return m_can_use_urls
 
     log.info("主页地址列表:" + str(m_can_use_urls))
+    print("主页地址列表:" + str(m_can_use_urls))
     return m_can_use_urls
 
 
@@ -635,7 +664,7 @@ if __name__ == '__main__':
             config = InitConf()  # 缺少配置文件就初始化
             log.info("初始化配置文件完成！！！Exit,退出--------------------\n\n")
             print("初始化配置文件完成！！！Exit,退出--------------------\n\n")
-            exit(120)
+            # sys.exit()
         log.info("配置文件加载完成>>>>>" + str(config))
 
         # 全局配置
@@ -656,6 +685,7 @@ if __name__ == '__main__':
         Download_Path = config[Download]["DownloadPath"]
         # 指令配置
         SWITCH = config[INSTRUCTION].getint("Switch")
+        GetPageNum = config[INSTRUCTION].getint("GetPageNum")
 
         # log = get_logger(config[LOG]["When"], config[LOG].getint("Interval"), config[LOG].getint("backupCount"))
 
@@ -670,8 +700,8 @@ if __name__ == '__main__':
             pass
 
         elif SWITCH == 1:  # 显示可用网址
-            mhost = CheckMainUrl()
-            if mhost == '':
+            mhost = CheckMainUrl(MAIN_URL_TABLE)
+            if len(mhost) == 0:
                 # 获取主页地址
                 all_urls = GetMainUrl(DEFAULT_HOST, DEFAULT_URL_PATH)
                 log.info("主页地址列表:" + str(all_urls))
@@ -681,8 +711,25 @@ if __name__ == '__main__':
                 print("可用地址：" + str(mhost))
 
         elif SWITCH == 2:  # 抓分区地址
-            mhost = CheckMainUrl()
-            if mhost == '':
+            mhost = CheckMainUrl(MAIN_URL_TABLE)
+            if len(mhost) == 0:
+                # 获取主页地址
+                mhost = GetMainUrl(DEFAULT_HOST, DEFAULT_URL_PATH)
+                log.info("主页地址列表:" + str(mhost))
+                print("可用地址：" + str(mhost))
+            # else:
+            #     log.info("主页地址列表:" + str(mhost))
+            #     print("可用地址：" + str(mhost))
+            # 解析主页 获取分区地址  GetMainPagaInfo() 改成返回本次获取的地址，解析的单独函数做
+            mainhtml = GetMainPagaInfo(mhost[0][1])
+            GetAreaurUrl(mainhtml, Picture_Url_TABLE)
+            GetPageUrlFromDb(mhost[0][1], Area_Url_TABLE, 12, GetPageNum)  # 12是图片区的 _id
+            # pictable = mydb[Picture_Url_TABLE]
+            GetOnePage(mhost[0][1], Picture_Url_TABLE, "寫真")
+
+        elif SWITCH == 3:  # 下载
+            mhost = CheckMainUrl(MAIN_URL_TABLE)
+            if len(mhost) == 0:
                 # 获取主页地址
                 mhost = GetMainUrl(DEFAULT_HOST, DEFAULT_URL_PATH)
                 log.info("主页地址列表:" + str(mhost))
@@ -690,24 +737,9 @@ if __name__ == '__main__':
             else:
                 log.info("主页地址列表:" + str(mhost))
                 print("可用地址：" + str(mhost))
-            # 解析主页 获取分区地址  GetMainPagaInfo() 改成返回本次获取的地址，解析的单独函数做
-            mainhtml = GetMainPagaInfo(mhost[0]["url"])
-            GetAreaurUrl(mainhtml)
-
-        elif SWITCH == 3:  # 下载
-            mhost = CheckMainUrl()
-            if mhost == '':
-                # 获取主页地址
-                mhost = GetMainUrl(DEFAULT_HOST)
-                log.info("主页地址列表:" + str(mhost))
-                print("可用地址：" + str(mhost))
-            else:
-                log.info("主页地址列表:" + str(mhost))
-                print("可用地址：" + str(mhost))
-            GetPageUrlFromDb(mhost[0]["url"], Area_Url_TABLE, 12, Picture_Url_TABLE)  # 12是图片区的 _id
-            pictable = mydb[Picture_Url_TABLE]
-
-            GetOnePage(mhost[0]["url"], pictable, "寫真")
+            GetPageUrlFromDb(mhost[0][1], Area_Url_TABLE, 12, GetPageNum)  # 12是图片区的 _id
+            # pictable = mydb[Picture_Url_TABLE]
+            GetOnePage(mhost[0][1], Picture_Url_TABLE, "寫真")
 
         # all_task = GetPageUrlFromDb(all_urls[0]["url"], "AreaUrl")
         # for each in all_task:
@@ -733,6 +765,6 @@ if __name__ == '__main__':
 
     except Exception as e:
         # print('traceback.format_exc():\n%s' % traceback.format_exc())
-        log.error('traceback.format_exc():\n' + traceback.format_exc())
+        log.error('traceback.format_exc():\n%s' % traceback.format_exc())
     input("Press Any Key Exit!!!")
     log.info("Exit,退出--------------------\n\n")
