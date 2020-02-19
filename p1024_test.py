@@ -1,6 +1,9 @@
 # -*- coding: UTF-8 -*-
 #
+import os
 import sqlite3
+from contextlib import closing
+from pathlib import Path
 
 import requests
 from bs4 import BeautifulSoup
@@ -78,32 +81,55 @@ def tselect(table, *args):
 
 # CheckMainUrl("MAINURL")
 
-def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
+def downimg(src, fstr, didcount, pmax):
     """
-    进入单页，操作，下载；修改图片数据库状态
-    :param host_url:    Host
-    :param ptable:      表名
-    :param pid:         id
-    :param pfname:      图名
-    :param purlpath:    单页url路径
-    :param pdidcount:   已下载计数
+    下载图片
+    :param src:
+    :param fstr:
+    :param didcount:
+    :param pmax:
     :return:
     """
-    url = "https://" + host_url + "/" + purlpath
-    # print(url)
-    head = {
-        "user-Agent": "Mozilla/4.0 (compatible; MSIE 6.13; Windows NT 5.1;SV1)",
-        "Host": host_url,
-        "Content-Length": "0",
-    }
-    response = requests.get(url, headers=head)
-    html = response.content.decode('GBK')
-    content_soup = BeautifulSoup(html, 'lxml')
-    p_list = content_soup.select('div.tpc_content.do_not_catch > p > img ')
-    pmax = len(p_list)
-    print("pmax=" + str(pmax))
-    print("plist=\n" + str(p_list).replace('\n', ' ').replace(u'\xa0', ' ').replace(
-                        u'\u200b', ''))
+    # url = "https://" + host_url + "/" + url_1
+    url = src
+    b = False
+    imgindexname = src.split('/')[-1]
+    file_path = "Download" + "/" + fstr + "/" + imgindexname
+    print("sdhfalfghj")
+    # print("\r Download" + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(pmax) + ")", end=" ")
+    try:
+        r = requests.get(url, stream=True)
+        imgsize = int(r.headers["Content-Length"])
+        print("pic leng=" + str(imgsize))
+    except Exception as e:
+        print(e.__str__())
+    # log.info(str(r))
+    if not Path("Download" + "/" + fstr).is_dir():    # download目录
+        os.makedirs("Download" + "/" + fstr)
+    # print("Download" + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(pmax) + ")")
+
+    chunk_size = 1024  # 单次请求最大值
+    content_size = int(r.headers['content-length'])  # 内容体总大小
+    data_count = 0
+    with open(file_path, 'wb') as file:
+        for data in r.iter_content(chunk_size=chunk_size):
+            file.write(data)
+            data_count = data_count + len(data)
+            now_jd = (data_count / content_size) * 100
+            done = int(50 * data_count / content_size)
+
+            print("\r %s\\\033[0;37;47m%s\033[0m\\%s 下载进度 - [%s%s] - (%d/%d) %d%%  - (%d/%d) " % ("Download", fstr, imgindexname, "█" * done, " " * int(50 - done), data_count, content_size, now_jd, didcount, pmax), end=" ")
+
+    # with open("Download" + "/" + fstr + "/" + imgindexname, 'wb') as f:
+    #     f.write(r.content)
+    #     # log.info(imgindexname + " 下载成功(" + str(fstr) + "/" + str(pmax) + ")")
+    #     os.system("")  # 变色玄学必须
+    #     print("Download"  + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(
+    #         pmax) + ")")
+        # log.info(Download_Path + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(
+        #     didcount + 1) + "/" + str(
+        #     pmax) + ")")
 
 
-GetALLPic("cl.tu2s.tk", "ptable", "pid", "pfname", "htm_data/2002/8/3815594.html", 0)
+url = "https://www.skeimg.com/u/20200211/22304229.jpg"
+downimg(url, "pfname", 0, 0)

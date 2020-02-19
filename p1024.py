@@ -1,12 +1,9 @@
 # 1024社区图片爬虫
 """
 执行时间做一下     暂时不用了，因为变成单线程在做
-下载图片功能做一下   完成，但要细化分页文件夹和命名
-反爬虫 ip 被封怎么搞    可能是代理ip解决的，可能是包头里加了coockie和accept解决的？
+反爬虫 ip 被封怎么搞    是包头里加了coockie解决的
 多线程池问题暂时解决不是很好，待实现优化
-实现下载完，数据库修改状态
-
-cookie，变化，处理    要自动get道cookie然后保存、更新
+exe程序莫名卡住，要日志排查，    貌似是图片文件过大，半天下不下来
 """
 
 # -*- coding: utf-8 -*-
@@ -16,15 +13,13 @@ import random
 # import threading
 # from concurrent.futures import ThreadPoolExecutor, as_completed, wait, ALL_COMPLETED
 import sqlite3
-import sys
 import traceback
+from contextlib import closing
 from logging import handlers
 from pathlib import Path
-
 import configparser
 import pymongo
 import requests
-# import json
 import time
 import re
 from bs4 import BeautifulSoup
@@ -270,7 +265,7 @@ def IsHaveHashData(table, *args):
     for i in range(0, len(args)):
         sqldata += (args[i][1],)
 
-    log.debug(sql + str(sqldata))
+    # log.debug(sql + str(sqldata))
     reslist = c.execute(sql, sqldata).fetchall()
 
     if len(reslist) > 0:
@@ -497,7 +492,7 @@ def AreaurPage(host_url, eachurl, table):
             i += 1
 
     conn.commit()
-    time.sleep(random.uniform(0, 0.5))
+    time.sleep(random.uniform(0.1, 0.3))
     print("完成抓取解析入库:" + url + " | 新增数据:(" + str(i) + ")")
     return 0
     # 分主题爬取 ps:[写真]、[动漫]
@@ -524,7 +519,7 @@ def GetOnePage(host_url, table, wantdowntype):
         # log.debug(str(reslist))
         # print(str(each[1]) + str(int(each[3]) == 1) + str(each[4] == "寫真"))
         if int(each[3]) == 1 and each[4] == "寫真":
-            log.info("进入[" + each[2] + "]预备下载：" + each[1])
+            # log.info("进入[" + each[2] + "]预备下载：" + each[1])
             GetALLPic(host_url, table, each[0], each[1], each[2], each[5])
 
 
@@ -546,7 +541,12 @@ def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
         "Host": host_url,
         "Content-Length": "0",
     }
+    log.info("进入[" + url + "]预备下载：" + pfname)
     response = requests.get(url, headers=head)
+    log.info("" + purlpath + "响应码：" + str(response.status_code))
+    if response.status_code != 200:
+        log.warning(url + " 页面可能进不去了")
+        return
     html = response.content.decode('GBK')
     content_soup = BeautifulSoup(html, 'lxml')
     p_list = content_soup.select('div.tpc_content.do_not_catch > img ')
@@ -564,6 +564,7 @@ def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
     conn.commit()
 
     # log.info("pmax---" + str(pmax))
+    start = time.time()
     for i in range(pdidcount, pmax):
         src = p_list[i]["data-src"]
         # log.info('src::' + str(src))
@@ -572,14 +573,15 @@ def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
         sqldata = (i + 1, pid,)
         reslist = c.execute(sql, sqldata).fetchall()
         conn.commit()
-
+    end = time.time()
+    print(' %s\033[0;37;47m%s\033[0m 完成下载 %d!用时 %.2f 秒' % (Download_Path, pfname, pmax, (end-start)))
     sql = "UPDATE " + ptable.upper() + " SET STATUS = ?, ISDID = ?  WHERE ID = ?;"
     sqldata = (0, pmax, pid,)
     reslist = c.execute(sql, sqldata).fetchall()
     conn.commit()
-
-    print("下载完成:" + "[" + str(pid) + "](" + str(pmax) + ")")
-    log.info("下载完成:" + "[" + pfname + "](" + str(pmax) + ")")
+    # print("下载完成:" + "[" + str(pid) + "](" + str(pmax) + ")")
+    # log.info("下载完成:" + "[" + pfname + "](" + str(pmax) + ")")
+    log.info(" 下载完成: [%s](%d) 用时 %.2f 秒 " % (pfname, pmax, (end-start)))
 
 
 def downimg(src, fstr, didcount, pmax):
@@ -594,30 +596,36 @@ def downimg(src, fstr, didcount, pmax):
     # url = "https://" + host_url + "/" + url_1
     url = src
     b = False
+    start = time.time()
     try:
-        r = requests.get(url)
+        r = requests.get(url, stream=True)
     except Exception as e:
         print(e.__str__())
     # log.info(str(r))
+    # log.info("图片大小:" + r.headers["Content-Length"] + "byte")
     imgindexname = src.split('/')[-1]
+    file_path = "Download" + "/" + fstr + "/" + imgindexname
     # my_file = Path(Download_Path + fstr)
     # print(Download_Path + " " + fstr)
     if r.status_code != 200:
-        r = requests.get(url)
+        log.warning(src + "响应：" + r.status_code)
     # if not Path(Download_Path).is_dir():    # download目录
     #     os.makedirs(Download_Path)
     if not Path(Download_Path + "/" + fstr).is_dir():  # 单项目录
         os.makedirs(Download_Path + "/" + fstr)
-
-    with open(Download_Path + "/" + fstr + "/" + imgindexname, 'wb') as f:
-        f.write(r.content)
-        # log.info(imgindexname + " 下载成功(" + str(fstr) + "/" + str(pmax) + ")")
-        os.system("")  # 变色玄学必须
-        print(Download_Path + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(
-            pmax) + ")")
-        log.info(Download_Path + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(
-            didcount + 1) + "/" + str(
-            pmax) + ")")
+    # 流模式，一块一块进行下载
+    chunk_size = 1024  # 单次请求最大值
+    content_size = int(r.headers['content-length'])  # 内容体总大小
+    data_count = 0
+    with open(Download_Path + "/" + fstr + "/" + imgindexname, 'wb') as file:
+        for data in r.iter_content(chunk_size=chunk_size):
+            file.write(data)
+            data_count = data_count + len(data)
+            now_jd = (data_count / content_size) * 100
+            done = int(50 * data_count / content_size)
+            print("\r %s\\\033[0;37;47m%s\033[0m\\%s 下载进度 - [%s%s] - (%d/%d) %d%% - (%d/%d) " % (Download_Path, fstr, imgindexname, "█" * done, " " * int(50 - done), data_count, content_size, now_jd, didcount+1, pmax), end=" ")
+        log.info(Download_Path + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(pmax) + ")")
+    print()
 
 
 def CheckMainUrl(table):
