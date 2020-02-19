@@ -574,7 +574,7 @@ def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
         reslist = c.execute(sql, sqldata).fetchall()
         conn.commit()
     end = time.time()
-    print(' %s\033[0;37;47m%s\033[0m 完成下载 %d!用时 %.2f 秒' % (Download_Path, pfname, pmax, (end-start)))
+    print(' %s\033[0;37;47m%s\033[0m 完成下载 ID = %d 用时 %.2f 秒!' % (Download_Path, pfname, pmax, (end-start)))
     sql = "UPDATE " + ptable.upper() + " SET STATUS = ?, ISDID = ?  WHERE ID = ?;"
     sqldata = (0, pmax, pid,)
     reslist = c.execute(sql, sqldata).fetchall()
@@ -624,7 +624,7 @@ def downimg(src, fstr, didcount, pmax):
             now_jd = (data_count / content_size) * 100
             done = int(50 * data_count / content_size)
             print("\r %s\\\033[0;37;47m%s\033[0m\\%s 下载进度 - [%s%s] - (%d/%d) %d%% - (%d/%d) " % (Download_Path, fstr, imgindexname, "█" * done, " " * int(50 - done), data_count, content_size, now_jd, didcount+1, pmax), end=" ")
-        log.info(Download_Path + "\\\033[0;37;47m" + fstr + "\033[0m\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(pmax) + ")")
+        log.info(Download_Path + "\\" + fstr + "\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(pmax) + ")")
     print()
 
 
