@@ -568,12 +568,13 @@ def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
     for i in range(pdidcount, pmax):
         src = p_list[i]["data-src"]
         # log.info('src::' + str(src))
-        downimg(src, pfname, i, pmax)  #
+        downimg(src, pfname, pid, i, pmax)  #
         sql = "UPDATE " + ptable.upper() + " SET  ISDID = ?  WHERE ID = ?;"
         sqldata = (i + 1, pid,)
         reslist = c.execute(sql, sqldata).fetchall()
         conn.commit()
     end = time.time()
+    os.system("")  # 变色玄学必须
     print(' %s\033[0;37;47m%s\033[0m 完成下载 ID = %d 用时 %.2f 秒!' % (Download_Path, pfname, pmax, (end-start)))
     sql = "UPDATE " + ptable.upper() + " SET STATUS = ?, ISDID = ?  WHERE ID = ?;"
     sqldata = (0, pmax, pid,)
@@ -584,9 +585,10 @@ def GetALLPic(host_url, ptable, pid, pfname, purlpath, pdidcount):
     log.info(" 下载完成: [%s](%d) 用时 %.2f 秒 " % (pfname, pmax, (end-start)))
 
 
-def downimg(src, fstr, didcount, pmax):
+def downimg(src, fstr, pid, didcount, pmax):
     """
     下载图片
+    :param pid:
     :param src:
     :param fstr:
     :param didcount:
@@ -603,8 +605,8 @@ def downimg(src, fstr, didcount, pmax):
         print(e.__str__())
     # log.info(str(r))
     # log.info("图片大小:" + r.headers["Content-Length"] + "byte")
-    imgindexname = src.split('/')[-1]
-    file_path = "Download" + "/" + fstr + "/" + imgindexname
+    imgname = str(pid) + "-" + str(didcount) + src.split('.')[-1]  # src.split('/')[-1]
+    file_path = "Download" + "/" + fstr + "/" + imgname
     # my_file = Path(Download_Path + fstr)
     # print(Download_Path + " " + fstr)
     if r.status_code != 200:
@@ -617,14 +619,16 @@ def downimg(src, fstr, didcount, pmax):
     chunk_size = 1024  # 单次请求最大值
     content_size = int(r.headers['content-length'])  # 内容体总大小
     data_count = 0
-    with open(Download_Path + "/" + fstr + "/" + imgindexname, 'wb') as file:
+    # os.system("")  # 变色玄学必须
+    with open(Download_Path + "/" + fstr + "/" + imgname, 'wb') as file:
         for data in r.iter_content(chunk_size=chunk_size):
             file.write(data)
             data_count = data_count + len(data)
             now_jd = (data_count / content_size) * 100
-            done = int(50 * data_count / content_size)
-            print("\r %s\\\033[0;37;47m%s\033[0m\\%s 下载进度 - [%s%s] - (%d/%d) %d%% - (%d/%d) " % (Download_Path, fstr, imgindexname, "█" * done, " " * int(50 - done), data_count, content_size, now_jd, didcount+1, pmax), end=" ")
-        log.info(Download_Path + "\\" + fstr + "\\" + imgindexname + " 下载成功(" + str(didcount + 1) + "/" + str(pmax) + ")")
+            done = int(20 * data_count / content_size)
+            print(" %s\\\033[0;37;47m%-8.8s\033[0m\\%-8.8s 下载进度 [%s%s] - (%.2F/%.2F KB) %d%% - [%d/%d] " % (Download_Path, fstr, imgname, ">" * done, "-" * int(20 - done), data_count/1024, content_size/1024, now_jd, didcount+1, pmax), end="\r")
+
+        log.info(Download_Path + "\\" + fstr + "\\" + imgname + " 下载成功(" + str(didcount + 1) + "/" + str(pmax) + ")")
     print()
 
 
@@ -663,6 +667,7 @@ def CheckMainUrl(table):
 
 
 if __name__ == '__main__':
+    os.system("mode con cols=120")
     try:
 
         log = get_logger()
