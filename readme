@@ -1,9 +1,19 @@
-build��
-    ���pycharm�а�װ���PyInstaller
-    ����terminal�նˣ���������pyinstaller -F -w p1024.py ���� pyinstaller p1024.py
-    ���ڵ�ǰĿ¼������dist�ļ��У�dist�ļ�����Ϊ���ɵ�exe�ļ�
-    ����˵����
-        -F�������п��ļ������һ��exe
-        -w�����غ�ɫ����̨����
-        �������-F���������ɺܶ��ļ��������бȽϿ졣ѹ����ȵ���exe�ļ�Сһ��
-        ��-F����ֻ����һ��exe�ļ�����������
+草榴社区1024地址生成
+
+写真区图片爬取下载
+
+
+
+
+
+
+
+build：
+    检查pycharm中安装插件PyInstaller
+    调出terminal终端，输入命令pyinstaller -F -w p1024.py 或者 pyinstaller p1024.py
+    会在当前目录下生产dist文件夹，dist文件夹下为生成的exe文件
+    参数说明：
+        -F：将所有库文件打包成一个exe
+        -w：隐藏黑色控制台窗口
+        如果不加-F参数会生成很多文件，但运行比较快。压缩后比单个exe文件小一点
+        加-F参数只生成一个exe文件，但运行慢
